@@ -1,0 +1,9 @@
+[package]
+name = "haveibeenpwnd"
+version = "0.1.0"
+authors = ["insanitybit <insanitybit@gmail.com>"]
+
+[dependencies]
+hyper = "0.9.*"
+serde = "0.8"
+serde_json = "0.8"
