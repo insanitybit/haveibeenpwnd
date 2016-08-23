@@ -7,3 +7,4 @@ authors = ["insanitybit <insanitybit@gmail.com>"]
 hyper = "0.9.*"
 serde = "0.8"
 serde_json = "0.8"
+error-chain = "0.4"
