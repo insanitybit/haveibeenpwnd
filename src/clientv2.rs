@@ -4,6 +4,7 @@ use hyper::Client as HyperClient;
 use hyper::header::UserAgent;
 use serde_json::{Value, from_str};
 
+use std::collections::BTreeMap;
 use std::io::prelude::*;
 
 pub struct Clientv2<'a> {
@@ -55,57 +56,108 @@ pub struct Breach {
     is_retired: Option<bool>,
 }
 
-
-
-fn breaches_from_str(s: &str) -> Vec<Breach> {
-    let data: Value = from_str(&s).unwrap();
-    let mut v = Vec::new();
-
-    if data.is_array() {
-        let data = data.as_array().unwrap();
-        for d in data {
-            let d = d.as_object().unwrap();
-            let breach = Breach {
-                name: d.get("Name").map(|d| d.as_str().unwrap().to_owned()).unwrap(),
-                title: d.get("Title").map(|t| t.as_str().unwrap().to_owned()),
-                domain: d.get("Domain").map(|d| d.as_str().unwrap().to_owned()),
-                breach_date: d.get("BreachDate").map(|d| d.as_str().unwrap().to_owned()),
-                added_date: d.get("AddedDate").map(|d| d.as_str().unwrap().to_owned()),
-                pwn_count: d.get("PwnCount").map(|p| p.as_u64().unwrap()),
-                description: d.get("Description").map(|d| d.as_str().unwrap().to_owned()),
-                data_classes: d.get("DataClasses").map(|dc| {
-                    let a = dc.as_array().unwrap();
-                    a.into_iter().map(|s| s.as_str().unwrap().to_owned()).collect()
-                }),
-                is_verified: d.get("IsVerified").map(|p| p.as_bool().unwrap()),
-                is_sensitive: d.get("IsSensitive").map(|p| p.as_bool().unwrap()),
-                is_retired: d.get("IsRetired").map(|p| p.as_bool().unwrap()),
-            };
-
-            v.push(breach);
-        }
-    } else {
-        let d = data.as_object().unwrap();
-        let breach = Breach {
-            name: d.get("Name").map(|d| d.as_str().unwrap().to_owned()).unwrap(),
-            title: d.get("Title").map(|t| t.as_str().unwrap().to_owned()),
-            domain: d.get("Domain").map(|d| d.as_str().unwrap().to_owned()),
-            breach_date: d.get("BreachDate").map(|d| d.as_str().unwrap().to_owned()),
-            added_date: d.get("AddedDate").map(|d| d.as_str().unwrap().to_owned()),
-            pwn_count: d.get("PwnCount").map(|p| p.as_u64().unwrap()),
-            description: d.get("Description").map(|d| d.as_str().unwrap().to_owned()),
-            data_classes: d.get("DataClasses").map(|dc| {
-                let a = dc.as_array().unwrap();
-                a.into_iter().map(|s| s.as_str().unwrap().to_owned()).collect()
-            }),
-            is_verified: d.get("IsVerified").map(|p| p.as_bool().unwrap()),
-            is_sensitive: d.get("IsSensitive").map(|p| p.as_bool().unwrap()),
-            is_retired: d.get("IsRetired").map(|p| p.as_bool().unwrap()),
-        };
-        v.push(breach);
+fn get_serde_string(obj: &Value) -> Result<String> {
+    match obj.as_str() {
+        Some(s) => Ok(s.to_owned()),
+        None => Err(format!("Failed to parse value to string: {:#?}", obj).into()),
     }
+}
 
-    v
+fn get_serde_array(obj: &Value) -> Result<Vec<Value>> {
+    match obj.as_array() {
+        Some(s) => Ok(s.to_owned()),
+        None => Err(format!("Failed to parse value to array: {:#?}", obj).into()),
+    }
+}
+
+fn get_serde_u64(obj: &Value) -> Result<u64> {
+    match obj.as_u64() {
+        Some(s) => Ok(s),
+        None => Err(format!("Failed to parse value to u64: {:#?}", obj).into()),
+    }
+}
+
+fn get_serde_bool(obj: &Value) -> Result<bool> {
+    match obj.as_bool() {
+        Some(s) => Ok(s),
+        None => Err(format!("Failed to parse value to bool: {:#?}", obj).into()),
+    }
+}
+
+fn get_serde_object<'a>(obj: &'a Value) -> Result<&'a BTreeMap<String, Value>> {
+    match obj.as_object() {
+        Some(s) => Ok(s),
+        None => Err(format!("Failed to parse value to object: {:#?}", obj).into()),
+    }
+}
+
+fn get_or_err<'a>(name: &str, obj: &'a BTreeMap<String, Value>) -> Result<&'a Value> {
+    match obj.get(name) {
+        Some(n) => Ok(n),
+        None => Err(format!("Failed to get field: {:?}", name).into()),
+    }
+}
+
+fn parse_breach(obj: &BTreeMap<String, Value>) -> Result<Breach> {
+    Ok(Breach {
+        name: try!(get_serde_string(try!(get_or_err("Name", obj)))),
+        title: try!(obj.get("Title").map(get_serde_string).map_or(Ok(None), |t| t.map(Some))),
+        domain: try!(obj.get("Domain")
+                        .map(get_serde_string)
+                        .map_or(Ok(None), |t| t.map(Some))),
+        breach_date: try!(obj.get("BreachDate")
+                             .map(get_serde_string)
+                             .map_or(Ok(None), |t| t.map(Some))),
+        added_date: try!(obj.get("AddedDate")
+                            .map(get_serde_string)
+                            .map_or(Ok(None), |t| t.map(Some))),
+        pwn_count: try!(obj.get("PwnCount")
+                           .map(get_serde_u64)
+                           .map_or(Ok(None), |t| t.map(Some))),
+        description: try!(obj.get("Description")
+                             .map(get_serde_string)
+                             .map_or(Ok(None), |t| t.map(Some))),
+        data_classes: try!(obj.get("DataClasses")
+                              .map(|dc| {
+                                  let v = try!(get_serde_array(dc));
+                                  v.iter()
+                                   .map(get_serde_string)
+                                   .collect::<Result<Vec<_>>>()
+                              })
+                              .map_or(Ok(None), |t| t.map(Some))),
+        is_verified: try!(obj.get("IsVerified")
+                             .map(get_serde_bool)
+                             .map_or(Ok(None), |t| t.map(Some))),
+        is_sensitive: try!(obj.get("IsSensitive")
+                              .map(get_serde_bool)
+                              .map_or(Ok(None), |t| t.map(Some))),
+        is_retired: try!(obj.get("IsRetired")
+                            .map(get_serde_bool)
+                            .map_or(Ok(None), |t| t.map(Some))),
+    })
+}
+
+fn breaches_from_str(s: &str) -> Result<Vec<Breach>> {
+    let data: Value = try!(from_str(&s)
+                               .chain_err(|| format!("Failed to parse breaches: {:#?}", s)));
+
+    if let Some(data) = data.as_array() {
+        data.iter()
+            .map(|d| d.as_object())
+            .collect::<Option<Vec<_>>>()
+            .map_or(Err(format!("Failed to convert internal object from response: {:#?}",
+                                data)
+                            .into()),
+                    |o| {
+                        o.into_iter()
+                         .map(parse_breach)
+                         .collect::<Result<Vec<_>>>()
+                    })
+    } else if let Some(data) = data.as_object() {
+        vec![parse_breach(&data)].into_iter().collect()
+    } else {
+        Err(format!("Improperly formatted response: {:#?}", s).into())
+    }
 }
 
 impl<'a> Clientv2<'a> {
@@ -198,8 +250,7 @@ impl<'a> AccountBreachRequest<'a> {
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
-        let breaches = breaches_from_str(&r);
-        Ok(breaches)
+        breaches_from_str(&r)
     }
 }
 
@@ -238,9 +289,7 @@ impl<'a> AllBreachesRequest<'a> {
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
-        println!("reading response {:?}", r);
-        let breaches = breaches_from_str(&r);
-        Ok(breaches)
+        breaches_from_str(&r)
     }
 }
 
@@ -266,14 +315,13 @@ impl<'a> BreachRequest<'a> {
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
-        println!("reading response {:?}", r);
-        let breaches = breaches_from_str(&r);
-        Ok(breaches)
+
+        breaches_from_str(&r)
     }
 }
 
 impl<'a> DataClassRequest<'a> {
-    pub fn send(&mut self) -> Result<Vec<Breach>> {
+    pub fn send(&mut self) -> Result<Vec<String>> {
         const url: &'static str = "https://haveibeenpwned.com/api/v2/dataclasses";
 
         let mut res = try!(self.client
@@ -284,9 +332,21 @@ impl<'a> DataClassRequest<'a> {
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
-        println!("reading response {:?}", r);
-        let breaches = breaches_from_str(&r);
-        Ok(breaches)
+
+
+
+        let data: Value = try!(from_str(&r).chain_err(|| {
+            format!("Failed to parse data classes: {:#?}", r)
+        }));
+
+        data.as_array()
+            .map(|d| {
+                d.into_iter()
+                 .map(get_serde_string)
+                 .collect::<Result<Vec<_>>>()
+            })
+            .unwrap_or(Err((format!("Failed to parse DataClass into array of string: {}", data)
+                                .into())))
     }
 }
 
@@ -300,12 +360,14 @@ mod tests {
         let mut client = Clientv2::new("test-rust-client");
 
         let r = client.get_breaches_acct("insanitybit@gmail.com")
-                      .send();
-        println!("{:?}", r.unwrap());
+                      .send()
+                      .unwrap();
 
         let r = client.get_breaches()
-                      .send();
-        println!("{:?}", r.unwrap());
+                      .send()
+                      .unwrap();
 
+
+        let r = client.get_data_classes().send().unwrap();
     }
 }
