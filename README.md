@@ -1,6 +1,8 @@
 # haveibeenpwnd
 A client for the Have I Been Pwned? API v2 for Rust
 
+[API reference](https://haveibeenpwned.com/API/v2#PasteModel)
+
 ```rust
 
   let client = Clientv2::new("test-rust-client");
