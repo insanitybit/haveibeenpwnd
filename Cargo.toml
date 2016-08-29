@@ -3,6 +3,14 @@ name = "haveibeenpwnd"
 version = "0.1.0"
 authors = ["insanitybit <insanitybit@gmail.com>"]
 
+description = "Provides a client for the Have I Been Pwned API"
+license = "MIT"
+keywords = ["pwned", "haveibeenpwned"]
+
+repository = "https://github.com/insanitybit/haveibeenpwned"
+readme = "README.md"
+
+
 [dependencies]
 hyper = "0.9.*"
 serde = "0.8.*"
