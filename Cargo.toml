@@ -5,7 +5,7 @@ authors = ["insanitybit <insanitybit@gmail.com>"]
 
 [dependencies]
 hyper = "0.9.*"
-serde = "0.8"
-serde_json = "0.8"
-error-chain = "0.4"
-url = "1.2.0"
+serde = "0.8.*"
+serde_json = "0.8.*"
+error-chain = "0.4.*"
+url = "1.2.*"
