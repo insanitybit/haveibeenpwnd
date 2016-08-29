@@ -3,16 +3,18 @@ use errors::*;
 use hyper::Client as HyperClient;
 use hyper::header::UserAgent;
 use serde_json::{Value, from_str};
+use url::{Url, ParseError};
 
 use std::collections::BTreeMap;
 use std::io::prelude::*;
+use std::str::FromStr;
 
 pub struct Clientv2<'a> {
     client: HyperClient,
     user_agent: &'a str,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AccountBreachRequest<'a> {
     client: &'a HyperClient,
     user_agent: &'a str,
@@ -21,24 +23,31 @@ pub struct AccountBreachRequest<'a> {
     domain: Option<&'a str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AllBreachesRequest<'a> {
     client: &'a HyperClient,
     user_agent: &'a str,
     domain: Option<&'a str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BreachRequest<'a> {
     client: &'a HyperClient,
     user_agent: &'a str,
     name: &'a str,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DataClassRequest<'a> {
     client: &'a HyperClient,
     user_agent: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct PasteRequest<'a> {
+    client: &'a HyperClient,
+    user_agent: &'a str,
+    account: &'a str,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +63,15 @@ pub struct Breach {
     is_verified: Option<bool>,
     is_sensitive: Option<bool>,
     is_retired: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Paste {
+    source: String,
+    id: String,
+    title: Option<String>,
+    date: Option<String>,
+    email_count: u64,
 }
 
 fn get_serde_string(obj: &Value) -> Result<String> {
@@ -160,6 +178,37 @@ fn breaches_from_str(s: &str) -> Result<Vec<Breach>> {
     }
 }
 
+fn parse_paste(obj: &BTreeMap<String, Value>) -> Result<Paste> {
+    Ok(Paste {
+        source: try!(get_serde_string(try!(get_or_err("Source", obj)))),
+        id: try!(get_serde_string(try!(get_or_err("Id", obj)))),
+        title: try!(get_or_err("Title", obj)).as_str().map(String::from),
+        date: try!(get_or_err("Date", obj)).as_str().map(String::from),
+        email_count: try!(get_serde_u64(try!(get_or_err("EmailCount", obj)))),
+    })
+}
+
+fn pastes_from_str(s: &str) -> Result<Vec<Paste>> {
+    let data: Value = try!(from_str(&s).chain_err(|| format!("Failed to parse pastes: {:#?}", s)));
+
+    match data.as_array() {
+        Some(data) => {
+            data.iter()
+                .map(|d| d.as_object())
+                .collect::<Option<Vec<_>>>()
+                .map_or(Err(format!("Failed to convert internal object from response: {:#?}",
+                                    data)
+                                .into()),
+                        |o| {
+                            o.into_iter()
+                             .map(parse_paste)
+                             .collect::<Result<Vec<_>>>()
+                        })
+        }
+        None => Err(format!("Improperly formatted response: {:#?}", s).into()),
+    }
+}
+
 impl<'a> Clientv2<'a> {
     pub fn new(user_agent: &'a str) -> Clientv2 {
         Clientv2 {
@@ -186,7 +235,7 @@ impl<'a> Clientv2<'a> {
         }
     }
 
-    pub fn get_breache(&'a self, name: &'a str) -> BreachRequest<'a> {
+    pub fn get_breach(&'a self, name: &'a str) -> BreachRequest<'a> {
         BreachRequest {
             client: &self.client,
             user_agent: &self.user_agent,
@@ -198,6 +247,14 @@ impl<'a> Clientv2<'a> {
         DataClassRequest {
             client: &self.client,
             user_agent: &self.user_agent,
+        }
+    }
+
+    pub fn get_pastes(&'a self, account: &'a str) -> PasteRequest<'a> {
+        PasteRequest {
+            client: &self.client,
+            user_agent: &self.user_agent,
+            account: &account,
         }
     }
 }
@@ -213,28 +270,19 @@ impl<'a> AccountBreachRequest<'a> {
         self
     }
 
-    fn build_url(&self) -> String {
-        let mut url = String::with_capacity(51 + self.account.len() +
-                                            match self.domain {
-            Some(d) => d.len() + 8,
-            None => 0,
-        } +
-                                            if self.truncate {
-            23
-        } else {
-            0
-        });
+    fn build_url(&self) -> Url {
+        let mut base = String::new();
+        base.push_str("https://haveibeenpwned.com/api/v2/breachedaccount/");
+        base.push_str(self.account);
 
-        url.push_str("https://haveibeenpwned.com/api/v2/breachedaccount/");
-        url.push_str(self.account);
+        let mut url = Url::parse(&base).unwrap();
 
         if let Some(d) = self.domain {
-            url.push_str("?domain=");
-            url.push_str(d);
+            url.query_pairs_mut().append_pair("domain", d);
         }
 
         if self.truncate {
-            url.push_str("?truncateResponse=true");
+            url.query_pairs_mut().append_pair("truncateResponse", "true");
         }
         url
     }
@@ -243,7 +291,7 @@ impl<'a> AccountBreachRequest<'a> {
         let url = self.build_url();
 
         let mut res = try!(self.client
-                               .get(&url)
+                               .get(url)
                                .header(UserAgent(self.user_agent.to_owned()))
                                .send()
                                .chain_err(|| "Failed to sent GET request for AccountBreach"));
@@ -261,18 +309,11 @@ impl<'a> AllBreachesRequest<'a> {
         self
     }
 
-    fn build_url(&self) -> String {
-        let mut url = String::with_capacity(43 +
-                                            match self.domain {
-            Some(d) => d.len() + 8,
-            None => 0,
-        });
-
-        url.push_str("https://haveibeenpwned.com/api/v2/breaches");
+    fn build_url(&self) -> Url {
+        let mut url = Url::parse("https://haveibeenpwned.com/api/v2/breaches").unwrap();
 
         if let Some(d) = self.domain {
-            url.push_str("?domain=");
-            url.push_str(d);
+            url.query_pairs_mut().append_pair("domain", d);
         }
 
         url
@@ -282,7 +323,7 @@ impl<'a> AllBreachesRequest<'a> {
         let url = self.build_url();
 
         let mut res = try!(self.client
-                               .get(&url)
+                               .get(url)
                                .header(UserAgent(self.user_agent.to_owned()))
                                .send()
                                .chain_err(|| "Failed to sent GET request for AllBreaches"));
@@ -322,10 +363,8 @@ impl<'a> BreachRequest<'a> {
 
 impl<'a> DataClassRequest<'a> {
     pub fn send(&mut self) -> Result<Vec<String>> {
-        const url: &'static str = "https://haveibeenpwned.com/api/v2/dataclasses";
-
         let mut res = try!(self.client
-                               .get(url)
+                               .get("https://haveibeenpwned.com/api/v2/dataclasses")
                                .header(UserAgent(self.user_agent.to_owned()))
                                .send()
                                .chain_err(|| "Failed to sent GET request for Breach"));
@@ -350,6 +389,31 @@ impl<'a> DataClassRequest<'a> {
     }
 }
 
+impl<'a> PasteRequest<'a> {
+    fn build_url(&self) -> Url {
+        Url::from_str(&format!("https://haveibeenpwned.com/api/v2/pasteaccount/{}",
+                               self.account))
+            .unwrap()
+    }
+
+    pub fn send(&mut self) -> Result<Vec<Paste>> {
+        let url = self.build_url();
+        let mut res = try!(self.client
+                               .get(url)
+                               .header(UserAgent(self.user_agent.to_owned()))
+                               .send()
+                               .chain_err(|| "Failed to sent GET request for pastes"));
+
+        let mut r = String::new();
+        try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
+        if r.is_empty() {
+            Ok(vec![])
+        } else {
+            pastes_from_str(&r)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,7 +423,7 @@ mod tests {
 
         let mut client = Clientv2::new("test-rust-client");
 
-        let r = client.get_breaches_acct("insanitybit@gmail.com")
+        let r = client.get_breaches_acct("test@example.com")
                       .send()
                       .unwrap();
 
@@ -369,5 +433,7 @@ mod tests {
 
 
         let r = client.get_data_classes().send().unwrap();
+
+        let r = client.get_pastes("test@example.com").send().unwrap();
     }
 }
