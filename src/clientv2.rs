@@ -3,7 +3,7 @@ use errors::*;
 use hyper::Client as HyperClient;
 use hyper::header::UserAgent;
 use serde_json::{Value, from_str};
-use url::{Url, ParseError};
+use url::Url;
 
 use std::collections::BTreeMap;
 use std::io::prelude::*;
@@ -102,12 +102,12 @@ fn get_serde_bool(obj: &Value) -> Result<bool> {
     }
 }
 
-fn get_serde_object<'a>(obj: &'a Value) -> Result<&'a BTreeMap<String, Value>> {
-    match obj.as_object() {
-        Some(s) => Ok(s),
-        None => Err(format!("Failed to parse value to object: {:#?}", obj).into()),
-    }
-}
+// fn get_serde_object<'a>(obj: &'a Value) -> Result<&'a BTreeMap<String, Value>> {
+//     match obj.as_object() {
+//         Some(s) => Ok(s),
+//         None => Err(format!("Failed to parse value to object: {:#?}", obj).into()),
+//     }
+// }
 
 fn get_or_err<'a>(name: &str, obj: &'a BTreeMap<String, Value>) -> Result<&'a Value> {
     match obj.get(name) {
