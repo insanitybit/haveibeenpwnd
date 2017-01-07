@@ -1,13 +1,13 @@
 [package]
 name = "haveibeenpwnd"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["insanitybit <insanitybit@gmail.com>"]
 
-description = "Provides a client for the Have I Been Pwned API"
+description = "Provides a client for the Have I Been Pwnd API"
 license = "MIT"
-keywords = ["pwned", "haveibeenpwned"]
+keywords = ["pwnd", "haveibeenpwnd", "haveibeenpwned"]
 
-repository = "https://github.com/insanitybit/haveibeenpwned"
+repository = "https://github.com/insanitybit/haveibeenpwnd"
 readme = "README.md"
 
 
