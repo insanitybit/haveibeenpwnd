@@ -12,7 +12,8 @@ readme = "README.md"
 
 
 [dependencies]
-hyper = "0.9.*"
+hyper = "0.10.*"
+hyper-rustls = "0.3.*"
 serde = "0.8.*"
 serde_json = "0.8.*"
 error-chain = "0.4.*"

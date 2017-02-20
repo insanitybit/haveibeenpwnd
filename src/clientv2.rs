@@ -1,5 +1,7 @@
 use errors::*;
 
+use hyper::net::HttpsConnector;
+use hyper_rustls;
 use hyper::Client as HyperClient;
 use hyper::header::UserAgent;
 use serde_json::{Value, from_str};
@@ -121,43 +123,43 @@ fn parse_breach(obj: &BTreeMap<String, Value>) -> Result<Breach> {
         name: try!(get_serde_string(try!(get_or_err("Name", obj)))),
         title: try!(obj.get("Title").map(get_serde_string).map_or(Ok(None), |t| t.map(Some))),
         domain: try!(obj.get("Domain")
-                        .map(get_serde_string)
-                        .map_or(Ok(None), |t| t.map(Some))),
+            .map(get_serde_string)
+            .map_or(Ok(None), |t| t.map(Some))),
         breach_date: try!(obj.get("BreachDate")
-                             .map(get_serde_string)
-                             .map_or(Ok(None), |t| t.map(Some))),
+            .map(get_serde_string)
+            .map_or(Ok(None), |t| t.map(Some))),
         added_date: try!(obj.get("AddedDate")
-                            .map(get_serde_string)
-                            .map_or(Ok(None), |t| t.map(Some))),
+            .map(get_serde_string)
+            .map_or(Ok(None), |t| t.map(Some))),
         pwn_count: try!(obj.get("PwnCount")
-                           .map(get_serde_u64)
-                           .map_or(Ok(None), |t| t.map(Some))),
+            .map(get_serde_u64)
+            .map_or(Ok(None), |t| t.map(Some))),
         description: try!(obj.get("Description")
-                             .map(get_serde_string)
-                             .map_or(Ok(None), |t| t.map(Some))),
+            .map(get_serde_string)
+            .map_or(Ok(None), |t| t.map(Some))),
         data_classes: try!(obj.get("DataClasses")
-                              .map(|dc| {
-                                  let v = try!(get_serde_array(dc));
-                                  v.iter()
-                                   .map(get_serde_string)
-                                   .collect::<Result<Vec<_>>>()
-                              })
-                              .map_or(Ok(None), |t| t.map(Some))),
+            .map(|dc| {
+                let v = try!(get_serde_array(dc));
+                v.iter()
+                    .map(get_serde_string)
+                    .collect::<Result<Vec<_>>>()
+            })
+            .map_or(Ok(None), |t| t.map(Some))),
         is_verified: try!(obj.get("IsVerified")
-                             .map(get_serde_bool)
-                             .map_or(Ok(None), |t| t.map(Some))),
+            .map(get_serde_bool)
+            .map_or(Ok(None), |t| t.map(Some))),
         is_sensitive: try!(obj.get("IsSensitive")
-                              .map(get_serde_bool)
-                              .map_or(Ok(None), |t| t.map(Some))),
+            .map(get_serde_bool)
+            .map_or(Ok(None), |t| t.map(Some))),
         is_retired: try!(obj.get("IsRetired")
-                            .map(get_serde_bool)
-                            .map_or(Ok(None), |t| t.map(Some))),
+            .map(get_serde_bool)
+            .map_or(Ok(None), |t| t.map(Some))),
     })
 }
 
 fn breaches_from_str(s: &str) -> Result<Vec<Breach>> {
     let data: Value = try!(from_str(&s)
-                               .chain_err(|| format!("Failed to parse breaches: {:#?}", s)));
+        .chain_err(|| format!("Failed to parse breaches: {:#?}", s)));
 
     if let Some(data) = data.as_array() {
         data.iter()
@@ -165,11 +167,11 @@ fn breaches_from_str(s: &str) -> Result<Vec<Breach>> {
             .collect::<Option<Vec<_>>>()
             .map_or(Err(format!("Failed to convert internal object from response: {:#?}",
                                 data)
-                            .into()),
+                        .into()),
                     |o| {
                         o.into_iter()
-                         .map(parse_breach)
-                         .collect::<Result<Vec<_>>>()
+                            .map(parse_breach)
+                            .collect::<Result<Vec<_>>>()
                     })
     } else if let Some(data) = data.as_object() {
         vec![parse_breach(&data)].into_iter().collect()
@@ -198,11 +200,11 @@ fn pastes_from_str(s: &str) -> Result<Vec<Paste>> {
                 .collect::<Option<Vec<_>>>()
                 .map_or(Err(format!("Failed to convert internal object from response: {:#?}",
                                     data)
-                                .into()),
+                            .into()),
                         |o| {
                             o.into_iter()
-                             .map(parse_paste)
-                             .collect::<Result<Vec<_>>>()
+                                .map(parse_paste)
+                                .collect::<Result<Vec<_>>>()
                         })
         }
         None => Err(format!("Improperly formatted response: {:#?}", s).into()),
@@ -212,7 +214,8 @@ fn pastes_from_str(s: &str) -> Result<Vec<Paste>> {
 impl<'a> Clientv2<'a> {
     pub fn new(user_agent: &'a str) -> Clientv2 {
         Clientv2 {
-            client: HyperClient::new(),
+            client:
+                HyperClient::with_connector(HttpsConnector::new(hyper_rustls::TlsClient::new())),
             user_agent: user_agent,
         }
     }
@@ -291,10 +294,13 @@ impl<'a> AccountBreachRequest<'a> {
         let url = self.build_url();
 
         let mut res = try!(self.client
-                               .get(url)
-                               .header(UserAgent(self.user_agent.to_owned()))
-                               .send()
-                               .chain_err(|| "Failed to sent GET request for AccountBreach"));
+            .get(url.clone())
+            .header(UserAgent(self.user_agent.to_owned()))
+            .send()
+            .chain_err(|| {
+                format!("Failed to send GET request for AccountBreach for url {:#?}",
+                        url)
+            }));
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
@@ -323,10 +329,13 @@ impl<'a> AllBreachesRequest<'a> {
         let url = self.build_url();
 
         let mut res = try!(self.client
-                               .get(url)
-                               .header(UserAgent(self.user_agent.to_owned()))
-                               .send()
-                               .chain_err(|| "Failed to sent GET request for AllBreaches"));
+            .get(url.clone())
+            .header(UserAgent(self.user_agent.to_owned()))
+            .send()
+            .chain_err(|| {
+                format!("Failed to send GET request for AllBreaches for url: {}",
+                        url)
+            }));
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
@@ -349,10 +358,10 @@ impl<'a> BreachRequest<'a> {
         let url = self.build_url(&self.name);
 
         let mut res = try!(self.client
-                               .get(&url)
-                               .header(UserAgent(self.user_agent.to_owned()))
-                               .send()
-                               .chain_err(|| "Failed to sent GET request for Breach"));
+            .get(&url)
+            .header(UserAgent(self.user_agent.to_owned()))
+            .send()
+            .chain_err(|| "Failed to sent GET request for Breach"));
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
@@ -364,28 +373,27 @@ impl<'a> BreachRequest<'a> {
 impl<'a> DataClassRequest<'a> {
     pub fn send(&mut self) -> Result<Vec<String>> {
         let mut res = try!(self.client
-                               .get("https://haveibeenpwned.com/api/v2/dataclasses")
-                               .header(UserAgent(self.user_agent.to_owned()))
-                               .send()
-                               .chain_err(|| "Failed to sent GET request for Breach"));
+            .get("https://haveibeenpwned.com/api/v2/dataclasses")
+            .header(UserAgent(self.user_agent.to_owned()))
+            .send()
+            .chain_err(|| "Failed to sent GET request for Breach"));
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
 
 
 
-        let data: Value = try!(from_str(&r).chain_err(|| {
-            format!("Failed to parse data classes: {:#?}", r)
-        }));
+        let data: Value = try!(from_str(&r)
+            .chain_err(|| format!("Failed to parse data classes: {:#?}", r)));
 
         data.as_array()
             .map(|d| {
                 d.into_iter()
-                 .map(get_serde_string)
-                 .collect::<Result<Vec<_>>>()
+                    .map(get_serde_string)
+                    .collect::<Result<Vec<_>>>()
             })
             .unwrap_or(Err((format!("Failed to parse DataClass into array of string: {}", data)
-                                .into())))
+                .into())))
     }
 }
 
@@ -399,10 +407,10 @@ impl<'a> PasteRequest<'a> {
     pub fn send(&mut self) -> Result<Vec<Paste>> {
         let url = self.build_url();
         let mut res = try!(self.client
-                               .get(url)
-                               .header(UserAgent(self.user_agent.to_owned()))
-                               .send()
-                               .chain_err(|| "Failed to sent GET request for pastes"));
+            .get(url)
+            .header(UserAgent(self.user_agent.to_owned()))
+            .send()
+            .chain_err(|| "Failed to sent GET request for pastes"));
 
         let mut r = String::new();
         try!(res.read_to_string(&mut r).chain_err(|| "Failed to read response to string"));
@@ -424,12 +432,12 @@ mod tests {
         let mut client = Clientv2::new("test-rust-client");
 
         let r = client.get_breaches_acct("test@example.com")
-                      .send()
-                      .unwrap();
+            .send()
+            .unwrap();
 
         let r = client.get_breaches()
-                      .send()
-                      .unwrap();
+            .send()
+            .unwrap();
 
 
         let r = client.get_data_classes().send().unwrap();
